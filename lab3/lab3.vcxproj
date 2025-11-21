@@ -135,6 +135,7 @@
   <ItemGroup>
     <ClInclude Include="MyMath.h" />
     <ClInclude Include="parserOBJ.h" />
+    <ClInclude Include="shaders.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="tgaimage.h" />
   </ItemGroup>

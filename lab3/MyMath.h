@@ -1,7 +1,23 @@
 #include <cmath>
 
 struct Vec4i {
-    int r, g, b, a;
+    int x, y, z, w;
+};
+
+struct Vec4 {
+    float x, y, z, w;
+
+    Vec4 operator + (const Vec4& other) const {
+        return Vec4(x + other.x, y + other.y, z + other.z, w + other.w);
+    }
+
+    Vec4 operator - (const Vec4& other) const {
+        return Vec4(x - other.x, y - other.y, z - other.z, w - other.w);
+    }
+
+    Vec4 operator * (float s) const {
+        return Vec4(x * s, y * s, z * s, w * s);
+    }
 };
 
 struct Vec3 {
@@ -34,8 +50,12 @@ struct Vec3 {
         }
     }
 
-    float operator * (const Vec3& other) const {
-        return x * other.x + y * other.y + z * other.z;
+    Vec3 operator * (const float& other) const {
+        return Vec3(x * other, y * other, z * other);
+    }
+
+    Vec3 operator * (const Vec3& other) const {
+        return Vec3(x * other.x, y * other.y, z * other.z);
     }
 
     Vec3 normalize() {
@@ -58,6 +78,18 @@ Vec3 cross(const Vec3& a, const Vec3& b) {
 struct Vec2 {
     float x, y;
     Vec2(float x = 0, float y = 0) : x(x), y(y) {}
+
+    Vec2 operator - (const Vec2& other) const {
+        return Vec2(x - other.x, y - other.y);
+    }
+
+    Vec2 operator + (const Vec2& other) const {
+        return Vec2(x + other.x, y + other.y);
+    }
+
+    Vec2 operator * (const float& other) const {
+        return Vec2(x * other, y * other);
+    }
 };
 
 struct Vec3i {
@@ -93,7 +125,7 @@ private:
 public:
     Matrix4() {
         for (int i = 0; i < 16; i++) m[i] = 0;
-        m[0] = m[5] = m[10] = m[15] = 1.0f; // identity
+        m[0] = m[5] = m[10] = m[15] = 1.0f; 
     }
 
     static Matrix4 lookAt(const Vec3& eye, const Vec3& target, const Vec3& up) {
@@ -153,3 +185,15 @@ public:
         return Vec3(x, y, z);
     }
 };
+
+Vec3 barycentric(Vec3* pts, Vec2 P) {
+    Vec3 u = cross(Vec3(pts[2].x - pts[0].x, pts[1].x - pts[0].x, pts[0].x - P.x),
+        Vec3(pts[2].y - pts[0].y, pts[1].y - pts[0].y, pts[0].y - P.y));
+
+    // Если вырожденный
+    if (std::abs(u.z) < 1e-2) {
+        return Vec3(-1, 1, 1);
+    }
+
+    return Vec3(1.0f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+}
