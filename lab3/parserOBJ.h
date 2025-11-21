@@ -12,6 +12,7 @@ struct Vertex {
 
 struct TextureCoord {
     float u, v;
+    TextureCoord(float u = 0, float v = 0) : u(u), v(v) {}
 };
 
 struct Normal {

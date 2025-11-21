@@ -1,136 +1,59 @@
 ﻿#include "tgaimage.h"
 #include "parserOBJ.h"
 #include "MyMath.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor black = TGAColor(30, 30, 30, 255);
 const TGAColor green = TGAColor(0, 180, 0, 255);
 const TGAColor red = TGAColor(180, 0, 0, 255);
 
-void line(int x0, int y0, int x1, int y1, TGAImage& image, TGAColor color) {
-    bool steep = false;
-    if (std::abs(x0 - x1) < std::abs(y0 - y1)) {
-        std::swap(x0, y0);
-        std::swap(x1, y1);
-        steep = true;
-    }
-    if (x0 > x1) {
-        std::swap(x0, x1);
-        std::swap(y0, y1);
-    }
-    int dx = x1 - x0;
-    int dy = y1 - y0;
-    int derror2 = std::abs(dy) * 2;
-    int error2 = 0;
-    int y = y0;
-    for (int x = x0; x <= x1; x++) {
-        if (steep) {
-            image.set(y, x, color);
+struct Texture {
+private:
+    unsigned char* data;
+    int width, height;
+    int channels;
+
+public:
+    Texture(const std::string& filename) {
+        data = stbi_load(filename.c_str(), &width, &height, &channels, 0);
+        if (!data) {
+            std::cout << "Failed to load texture: " << filename << std::endl;
+            width = height = channels = 0;
         }
         else {
-            image.set(x, y, color);
-        }
-        error2 += derror2;
-
-        if (error2 > dx) {
-            y += (y1 > y0 ? 1 : -1);
-            error2 -= dx * 2;
+            std::cout << "Texture loaded " << std::endl;
         }
     }
-}
 
-void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage& image, TGAColor color) {
-    if (t0.y > t1.y) std::swap(t0, t1);
-    if (t0.y > t2.y) std::swap(t0, t2);
-    if (t1.y > t2.y) std::swap(t1, t2);
-
-    int total_height = t2.y - t0.y;
-    for (int y = t0.y; y <= t1.y; y++) {
-        int segment_height = t1.y - t0.y + 1;
-        float alpha = (float)(y - t0.y) / total_height;
-        float beta = (float)(y - t0.y) / segment_height;
-        Vec2i A = t0 + (t2 - t0) * alpha;
-        Vec2i B = t0 + (t1 - t0) * beta;
-        if (A.x > B.x) std::swap(A, B);
-        for (int j = A.x; j <= B.x; j++) {
-            image.set(j, y, color); 
-        }
+    ~Texture() {
+        if (data) stbi_image_free(data);
     }
-    for (int y = t1.y; y <= t2.y; y++) {
-        int segment_height = t2.y - t1.y + 1;
-        float alpha = (float)(y - t0.y) / total_height;
-        float beta = (float)(y - t1.y) / segment_height; 
-        Vec2i A = t0 + (t2 - t0) * alpha;
-        Vec2i B = t1 + (t2 - t1) * beta;
-        if (A.x > B.x) std::swap(A, B);
-        for (int j = A.x; j <= B.x; j++) {
-            image.set(j, y, color); 
+
+    TGAColor getColor(float u, float v) const {
+        if (!data) return TGAColor(255, 0, 255, 255);
+
+        v = 1.0f - v;
+
+        int x = static_cast<int>(u * width) % width;
+        int y = static_cast<int>(v * height) % height;
+
+        if (x < 0) x += width;
+        if (y < 0) y += height;
+
+        int index = (y * width + x) * channels;
+
+        if (channels >= 3) {
+            return TGAColor(data[index], data[index + 1], data[index + 2], 255);
         }
-    }
-}
-
-void drawModelTriangle(const Model& model, int width, int height, TGAImage& image, TGAColor color) {
-    for (int i = 0; i < model.faces.size(); i++) {
-        const Face& face = model.faces[i];
-
-        if (face.vertexId.size() >= 3) {
-            std::vector<Vec2i> screen_coords;
-
-            for (int j = 0; j < face.vertexId.size(); j++) {
-                const Vertex& v = model.vertices[face.vertexId[j]];
-                int x = (v.x + 1.0f) * width / 2.0f;
-                int y = (v.y + 1.0f) * height / 2.0f;
-                screen_coords.push_back(Vec2i(x, y));
-            }
-
-            for (int j = 1; j < screen_coords.size() - 1; j++) {
-                triangle(screen_coords[0], screen_coords[j], screen_coords[j + 1], image, color);
-            }
+        else if (channels == 1) {
+            return TGAColor(data[index], data[index], data[index], 255);
         }
+
+        return TGAColor(255, 0, 255, 255);
     }
-}
-
-void drawModelTriangleL(const Model& model, int width, int height, TGAImage& image, const Vec3& light_dir) {
-    for (int i = 0; i < model.faces.size(); i++) {
-        const Face& face = model.faces[i];
-
-        if (face.vertexId.size() >= 3) {
-            std::vector<Vec2i> screen_coords;
-            std::vector<Vec3> world_coords;
-
-            for (int j = 0; j < face.vertexId.size(); j++) {
-                const Vertex& v = model.vertices[face.vertexId[j]];
-                int x = (v.x + 1.0f) * width / 2.0f;
-                int y = (v.y + 1.0f) * height / 2.0f;
-                screen_coords.push_back(Vec2i(x, y));
-                world_coords.push_back(Vec3(v.x, v.y, v.z));
-            }
-
-            // Триангулируем полигон и для каждого треугольника вычисляем освещение
-            for (int j = 1; j < screen_coords.size() - 1; j++) {
-                int idx0 = 0;
-                int idx1 = j;
-                int idx2 = j + 1;
-
-                Vec3 v0 = world_coords[idx0];
-                Vec3 v1 = world_coords[idx1];
-                Vec3 v2 = world_coords[idx2];
-
-                Vec3 edge1 = v1 - v0;
-                Vec3 edge2 = v2 - v0;
-                Vec3 normal = cross(edge1, edge2);
-                normal.normalize();
-
-                float intensity = normal * light_dir;
-
-                if (intensity > 0) {
-                    TGAColor color = TGAColor(intensity * 255, intensity * 255, intensity * 255, 255);
-                    triangle(screen_coords[idx0], screen_coords[idx1], screen_coords[idx2], image, color);
-                }
-            }
-        }
-    }
-}
+};
 
 Vec3 barycentric(Vec3* pts, Vec2 P) {
     Vec3 u = cross(Vec3(pts[2].x - pts[0].x, pts[1].x - pts[0].x, pts[0].x - P.x),
@@ -144,113 +67,182 @@ Vec3 barycentric(Vec3* pts, Vec2 P) {
     return Vec3(1.0f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
 
-void triangle_with_zbuffer(Vec3* pts, int width, int height, float* zbuffer, TGAImage& image, TGAColor color) {
+void DrawTriangle(Vec3* pts, Vec2* uvs, int width, int height, float* zbuffer,
+    TGAImage& image, const Texture& texture, float intensity) {
+
     Vec2 bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
     Vec2 bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
 
     for (int i = 0; i < 3; i++) {
-        bboxmin.x = std::min(bboxmin.x, pts[i].x);
-        bboxmin.y = std::min(bboxmin.y, pts[i].y);
-        bboxmax.x = std::max(bboxmax.x, pts[i].x);
-        bboxmax.y = std::max(bboxmax.y, pts[i].y);
+        bboxmin.x = std::max(0.f, std::min(bboxmin.x, pts[i].x));
+        bboxmin.y = std::max(0.f, std::min(bboxmin.y, pts[i].y));
+        bboxmax.x = std::min(width - 1.f, std::max(bboxmax.x, pts[i].x));
+        bboxmax.y = std::min(height - 1.f, std::max(bboxmax.y, pts[i].y));
     }
-
-    bboxmin.x = std::max(0.f, bboxmin.x);
-    bboxmin.y = std::max(0.f, bboxmin.y);
-    bboxmax.x = std::min(width - 1.f, bboxmax.x);
-    bboxmax.y = std::min(height - 1.f, bboxmax.y);
 
     for (int x = (int)bboxmin.x; x <= (int)bboxmax.x; x++) {
         for (int y = (int)bboxmin.y; y <= (int)bboxmax.y; y++) {
             Vec3 bc = barycentric(pts, Vec2(x, y));
 
-            if (bc.x >= 0 && bc.y >= 0 && bc.z >= 0) {
-                float z = 0;
-                for (int i = 0; i < 3; i++) {
-                    z += pts[i].z * bc[i];
-                }
+            if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
 
-                // Проверяем Z-буфер
-                int idx = x + y * width;
-                if (z < zbuffer[idx]) {
-                    zbuffer[idx] = z;
-                    image.set(x, y, color);
-                }
+            float z = pts[0].z * bc.x + pts[1].z * bc.y + pts[2].z * bc.z;
+
+            float u = uvs[0].x * bc.x + uvs[1].x * bc.y + uvs[2].x * bc.z;
+            float v = uvs[0].y * bc.x + uvs[1].y * bc.y + uvs[2].y * bc.z;
+
+            int idx = x + y * width;
+            if (z < zbuffer[idx]) {
+                zbuffer[idx] = z;
+
+                TGAColor tex_color = texture.getColor(u, v);
+                TGAColor final_color = TGAColor(
+                    tex_color.r * intensity,
+                    tex_color.g * intensity,
+                    tex_color.b * intensity,
+                    255
+                );
+
+                image.set(x, y, final_color);
             }
         }
     }
 }
 
-void drawModelWithZBuffer(const Model& model, int width, int height, TGAImage& image,
-    float* zbuffer, const Vec3& light_dir) {
+class Camera {
+private:
+    Vec3 position;     
+    Vec3 target;         
+    Vec3 up;        
+
+    float field_of_view;   
+    float near_distance;  
+    float far_distance; 
+
+    Matrix4 view_matrix; 
+    Matrix4 projection_matrix;
+
+public:
+    Camera(const Vec3& camera_position = Vec3(0, 0, 3),
+        const Vec3& look_at_target = Vec3(0, 0, 0),
+        float fov_degrees = 45.0f,
+        float near_plane = 0.1f,
+        float far_plane = 100.0f)
+        : position(camera_position),
+        target(look_at_target),
+        up(0, 1, 0),
+        field_of_view(fov_degrees),
+        near_distance(near_plane),
+        far_distance(far_plane) {
+
+        recalculateMatrices();
+    }
+
+    void recalculateMatrices() {
+        updateViewMatrix();
+        updateProjectionMatrix();
+    }
+
+private:
+    void updateViewMatrix() {
+        Vec3 forward_direction = (target - position).normalize();
+
+        Vec3 right_direction = cross(forward_direction, up).normalize();
+
+        Vec3 corrected_up = cross(right_direction, forward_direction);
+
+        view_matrix = Matrix4::lookAt(position, target, corrected_up);
+    }
+
+    void updateProjectionMatrix() {
+        const float PI = 3.14159265358979323846f;
+        float fov_radians = field_of_view * PI / 180.0f;
+
+        float aspect_ratio = 1.0f; // Если наебнётся - возможно изменил разрешение
+
+        projection_matrix = Matrix4::perspective(fov_radians, aspect_ratio,
+            near_distance, far_distance);
+    }
+
+public:
+    void move(const Vec3& movement_offset) {
+        position = position + movement_offset;
+        target = target + movement_offset;
+        updateViewMatrix();
+    }
+
+    void setPosition(const Vec3& new_position) {
+        Vec3 look_direction = target - position;
+        position = new_position;
+        target = position + look_direction;
+        updateViewMatrix();
+    }
+
+    void lookAt(const Vec3& new_target) {
+        target = new_target;
+        updateViewMatrix();
+    }
+
+    void setFieldOfView(float new_fov_degrees) {
+        field_of_view = new_fov_degrees;
+        updateProjectionMatrix();
+    }
+
+    Matrix4 getViewMatrix() const { return view_matrix; }
+    Matrix4 getProjectionMatrix() const { return projection_matrix; }
+};
+
+void renderWithCamera(const Model& model, const Texture& texture, const Camera& camera, int width, int height,
+    TGAImage& image, float* zbuffer, const Vec3& light_dir) {
+
+    Matrix4 view = camera.getViewMatrix();
+    Matrix4 projection = camera.getProjectionMatrix();
+
     for (int i = 0; i < model.faces.size(); i++) {
         const Face& face = model.faces[i];
 
         if (face.vertexId.size() >= 3) {
             for (int j = 1; j < face.vertexId.size() - 1; j++) {
-                int idx0 = 0;
-                int idx1 = j;
-                int idx2 = j + 1;
+                int idx0 = 0, idx1 = j, idx2 = j + 1;
 
                 const Vertex& v0 = model.vertices[face.vertexId[idx0]];
                 const Vertex& v1 = model.vertices[face.vertexId[idx1]];
                 const Vertex& v2 = model.vertices[face.vertexId[idx2]];
 
-                Vec3 screen_coords[3];
-                screen_coords[0] = Vec3((v0.x + 1.0f) * width / 2.0f,
-                    (v0.y + 1.0f) * height / 2.0f,
-                    v0.z);
-                screen_coords[1] = Vec3((v1.x + 1.0f) * width / 2.0f,
-                    (v1.y + 1.0f) * height / 2.0f,
-                    v1.z);
-                screen_coords[2] = Vec3((v2.x + 1.0f) * width / 2.0f,
-                    (v2.y + 1.0f) * height / 2.0f,
-                    v2.z);
+                Vec3 world_v0(v0.x, v0.y, v0.z);
+                Vec3 world_v1(v1.x, v1.y, v1.z);
+                Vec3 world_v2(v2.x, v2.y, v2.z);
 
-                Vec3 world_coords[3] = {
-                    Vec3(v0.x, v0.y, v0.z),
-                    Vec3(v1.x, v1.y, v1.z),
-                    Vec3(v2.x, v2.y, v2.z)
+                Vec3 clip_v0 = projection.transformPoint(view.transformPoint(world_v0));
+                Vec3 clip_v1 = projection.transformPoint(view.transformPoint(world_v1));
+                Vec3 clip_v2 = projection.transformPoint(view.transformPoint(world_v2));
+
+                Vec3 screen_coords[3] = {
+                    Vec3((clip_v0.x + 1.0f) * width / 2.0f, (clip_v0.y + 1.0f) * height / 2.0f, clip_v0.z),
+                    Vec3((clip_v1.x + 1.0f) * width / 2.0f, (clip_v1.y + 1.0f) * height / 2.0f, clip_v1.z),
+                    Vec3((clip_v2.x + 1.0f) * width / 2.0f, (clip_v2.y + 1.0f) * height / 2.0f, clip_v2.z)
                 };
 
-                Vec3 edge1 = world_coords[1] - world_coords[0];
-                Vec3 edge2 = world_coords[2] - world_coords[0];
-                Vec3 normal = cross(edge1, edge2);
-                normal.normalize();
-
+                const TextureCoord& uv0 = model.texCoords[face.textureId[idx0]];
+                const TextureCoord& uv1 = model.texCoords[face.textureId[idx1]];
+                const TextureCoord& uv2 = model.texCoords[face.textureId[idx2]];
+                Vec2 texture_coords[3] = {
+                    Vec2(uv0.u, uv0.v),
+                    Vec2(uv1.u, uv1.v),
+                    Vec2(uv2.u, uv2.v)
+                };
+                Vec3 edge1 = world_v1 - world_v0;
+                Vec3 edge2 = world_v2 - world_v0;
+                Vec3 normal = cross(edge1, edge2).normalize();
                 float intensity = normal * light_dir;
 
-                Vec3 Texture(0, 0, 0);
-
-                model.texCoords[i].u;
-                model.texCoords[i].v;
-
                 if (intensity > 0) {
-                    TGAColor color = TGAColor(intensity * 255, intensity * 255,
-                        intensity * 255, 255);
-                    triangle_with_zbuffer(screen_coords, width, height, zbuffer, image, color);
+                    DrawTriangle(screen_coords, texture_coords, width, height, zbuffer, image, texture, intensity);
+                }
+                else {
+                    DrawTriangle(screen_coords, texture_coords, width, height, zbuffer, image, texture, 0);
                 }
             }
-        }
-    }
-}
-
-void drawModelLine(const Model& model, int width, int height, TGAImage& image, TGAColor color) {
-    for (int i = 0; i < model.faces.size(); i++) {
-        const Face& face = model.faces[i];
-
-        for (int j = 0; j < face.vertexId.size(); j++) {
-            int currentVertexIndex = face.vertexId[j];
-            int nextVertexIndex = face.vertexId[(j + 1) % face.vertexId.size()];
-            const Vertex& v0 = model.vertices[currentVertexIndex];
-            const Vertex& v1 = model.vertices[nextVertexIndex];
-
-            int x0 = (v0.x + 1.0f) * width / 2.0f ;
-            int y0 = (v0.y + 1.0f) * height / 2.0f ;
-            int x1 = (v1.x + 1.0f) * width / 2.0f ;
-            int y1 = (v1.y + 1.0f) * height / 2.0f;
-
-            line(x0, y0, x1, y1, image, color);
         }
     }
 }
@@ -266,31 +258,26 @@ int main() {
 		}
 	}
 
-    //Линии
-	//line(20, 20, 480, 20, image, white);
-	//line(20, 20, 250, 480, image, white);
-	//line(480, 20, 250, 480, image, white);
-
     Model obj;
-    obj = parseOBJ("base.obj");
+    obj = parseOBJ("Isacc.obj");
     printInfo(obj);
-
-    //Модель на линиях
-    //drawModelLine(obj, width, height, image, white);
-
-    //Треугольники
-    //Vec2i t0[3] = { Vec2i(10, 70),   Vec2i(50, 160),  Vec2i(70, 80) };
-    //Vec2i t1[3] = { Vec2i(180, 50),  Vec2i(150, 1),   Vec2i(70, 180) };
-    //Vec2i t2[3] = { Vec2i(180, 150), Vec2i(120, 160), Vec2i(130, 180) };
-    //triangle(t1[0], t1[1], t1[2], image, red);
-    //triangle(t0[0], t0[1], t0[2], image, green);
-    //triangle(t2[0], t2[1], t2[2], image, white);
 
     std::cout << "Start" << std::endl;
 
-    Vec3 light_dir(0, 0., -1);
+    Vec3 light_dir(0, 0., 1);
     std::vector<float> zBuffer(width * height, std::numeric_limits<float>::max());
-    drawModelWithZBuffer(obj, width, height, image, zBuffer.data(), light_dir);
+
+    //drawModelWithZBuffer(obj, width, height, image, zBuffer.data(), light_dir);
+    Camera camera(Vec3(0, 2.5, 8), //камера 
+        Vec3(0, 2.5, 0),  // моделька
+        40.0f,          // FOV
+        0.1f,           // мин
+        50.0f);         // макс
+
+    Texture texture("Isaac.png");
+
+    renderWithCamera(obj, texture, camera, width, height, image, zBuffer.data(), light_dir);
+
     std::cout << "End";
 
 	image.flip_vertically();
