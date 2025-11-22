@@ -41,6 +41,37 @@ void triangle(Vec3* screen_pts, const Vec3& world_v0, const Vec3& world_v1,
     }
 }
 
+void IceLight(Vec3* screen_pts, const Vec3& world_v0, const Vec3& world_v1,
+    const Vec3& world_v2, Vec2* tex_coords,
+    const ShaderUniform& uniform, int width, int height,
+    float* zbuffer, TGAImage& image) {
+
+    Vec2 bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+    Vec2 bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+
+    for (int i = 0; i < 3; i++) {
+        bboxmin.x = std::max(0.f, std::min(bboxmin.x, screen_pts[i].x));
+        bboxmin.y = std::max(0.f, std::min(bboxmin.y, screen_pts[i].y));
+        bboxmax.x = std::min(width - 1.f, std::max(bboxmax.x, screen_pts[i].x));
+        bboxmax.y = std::min(height - 1.f, std::max(bboxmax.y, screen_pts[i].y));
+    }
+
+    for (int x = (int)bboxmin.x; x <= (int)bboxmax.x; x++) {
+        for (int y = (int)bboxmin.y; y <= (int)bboxmax.y; y++) {
+            Vec3 bc = barycentric(screen_pts, Vec2(x, y));
+
+            if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
+
+            float z = screen_pts[0].z * bc.x + screen_pts[1].z * bc.y + screen_pts[2].z * bc.z;
+            Vec3 world_pos = world_v0 * bc.x + world_v1 * bc.y + world_v2 * bc.z;
+            Vec2 texcoord = tex_coords[0] * bc.x + tex_coords[1] * bc.y + tex_coords[2] * bc.z;
+
+            TGAColor color = TGAColor(100, 200, 255, 58);
+            image.set(x, y, color);
+        }
+    }
+}
+
 class Camera {
 private:
     Vec3 position;     
@@ -123,6 +154,53 @@ public:
 };
 
 void drawModel(const Model& model, const ShaderUniform& uniform, TGAImage& image, float* zbuffer) {
+
+    const float ice_thickness = 1.3f;
+
+    for (int i = 0; i < model.faces.size(); i++) {
+        const Face& face = model.faces[i];
+        if (face.vertexId.size() >= 3 && face.textureId.size() >= 3) {
+            for (int j = 1; j < face.vertexId.size() - 1; j++) {
+                int idx0 = 0, idx1 = j, idx2 = j + 1;
+
+                const Vertex& v0 = model.vertices[face.vertexId[idx0]];
+                const Vertex& v1 = model.vertices[face.vertexId[idx1]];
+                const Vertex& v2 = model.vertices[face.vertexId[idx2]];
+
+                // УВЕЛИЧИВАЕМ все вершины одинаково (uniform scale)
+                Vec3 world_v0 = Vec3(v0.x * ice_thickness, v0.y * ice_thickness + ice_thickness , v0.z * ice_thickness - ice_thickness * 4 );
+                Vec3 world_v1 = Vec3(v1.x * ice_thickness, v1.y * ice_thickness + ice_thickness , v1.z * ice_thickness - ice_thickness * 4);
+                Vec3 world_v2 = Vec3(v2.x * ice_thickness, v2.y * ice_thickness + ice_thickness , v2.z * ice_thickness - ice_thickness * 4);
+
+                // Вычисляем нормаль для освещения
+                Vec3 edge1 = world_v1 - world_v0;
+                Vec3 edge2 = world_v2 - world_v0;
+                Vec3 normal = cross(edge1, edge2).normalize();
+
+                // Преобразуем в экранные координаты
+                Vec3 screen_v0 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v0));
+                Vec3 screen_v1 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v1));
+                Vec3 screen_v2 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v2));
+
+                Vec3 screen_coords[3] = {
+                    Vec3((screen_v0.x + 1.0f) * uniform.width / 2.0f, (screen_v0.y + 1.0f) * uniform.height / 2.0f, screen_v0.z),
+                    Vec3((screen_v1.x + 1.0f) * uniform.width / 2.0f, (screen_v1.y + 1.0f) * uniform.height / 2.0f, screen_v1.z),
+                    Vec3((screen_v2.x + 1.0f) * uniform.width / 2.0f, (screen_v2.y + 1.0f) * uniform.height / 2.0f, screen_v2.z)
+                };
+
+                Vec2 texture_coords[3] = { Vec2(0,0), Vec2(0,0), Vec2(0,0) }; // Без текстуры для льда
+
+                // Рендерим ледяной блок
+                IceLight(screen_coords, world_v0, world_v1, world_v2,
+                    texture_coords, uniform, uniform.width, uniform.height, zbuffer, image);
+            }
+        }
+    }
+
+
     for (int i = 0; i < model.faces.size(); i++) {
         const Face& face = model.faces[i];
         if (face.vertexId.size() >= 3 && face.textureId.size() >= 3) {
@@ -216,6 +294,7 @@ int main() {
     material.specular = Vec3(0.5f, 0.5f, 0.5f);
     material.shininess = 32.0f;
     material.texture = &texture;
+    material.ExtraColor = Vec3(0, 0, 60);
 
     Light light;
     light.position = Vec3(4, 10, 30);

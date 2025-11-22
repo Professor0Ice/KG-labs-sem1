@@ -67,6 +67,7 @@ struct Material {
     Vec3 specular;     
     float shininess;   
     Texture* texture;
+    Vec3 ExtraColor;
 };
 
 struct Light {
@@ -133,5 +134,6 @@ TGAColor phongLight(const Vec3& world_pos, Vec3& normal, const Vec2& texcoord, c
     result.y = std::min(1.0f, std::max(0.0f, result.y));
     result.z = std::min(1.0f, std::max(0.0f, result.z));
 
-    return TGAColor(result.x * 255, result.y * 255, result.z * 255, 255);
+    TGAColor color = TGAColor(result.x * 255 + uniform.material.ExtraColor.x, result.y * 255 + uniform.material.ExtraColor.y, result.z * 255 + uniform.material.ExtraColor.z, 255);
+    return color;
 }
