@@ -89,28 +89,6 @@ struct ShaderUniform {
     Light light;
 };
 
-ShaderVarying vertex_shader(const Vertex& vertex, const Normal& normal, const TextureCoord& texcoord, ShaderUniform& uniforms) {
-    ShaderVarying out;
-
-    Vec3 world_pos(vertex.x, vertex.y, vertex.z);
-    Vec3 view_pos = uniforms.view_matrix.transformPoint(world_pos);
-    Vec3 clip_pos = uniforms.projection_matrix.transformPoint(view_pos);
-
-    out.screen_pos = Vec3(
-        (clip_pos.x + 1.0f) * uniforms.width / 2.0f,
-        (clip_pos.y + 1.0f) * uniforms.height / 2.0f,
-        clip_pos.z
-    );
-
-    out.world_pos = world_pos;
-    out.normal = Vec3(normal.x, normal.y, normal.z);
-    out.texcoord = Vec2(texcoord.u, texcoord.v);
-
-    out.intensity = std::max(0.0f, dot(out.normal.normalize(), uniforms.light_dir.normalize()) );
-
-    return out;
-}
-
 TGAColor phongLight(const Vec3& world_pos, Vec3& normal, const Vec2& texcoord, const ShaderUniform& uniform) {
     const Material& material = uniform.material;
     const Light& light = uniform.light;

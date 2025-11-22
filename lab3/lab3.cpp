@@ -42,7 +42,7 @@ void triangle(Vec3* screen_pts, const Vec3& world_v0, const Vec3& world_v1,
 }
 
 void IceLight(Vec3* screen_pts, const Vec3& world_v0, const Vec3& world_v1,
-    const Vec3& world_v2, Vec2* tex_coords,
+    const Vec3& world_v2, Vec2* tex_coords, Vec3 face_normal,
     const ShaderUniform& uniform, int width, int height,
     float* zbuffer, TGAImage& image) {
 
@@ -63,11 +63,24 @@ void IceLight(Vec3* screen_pts, const Vec3& world_v0, const Vec3& world_v1,
             if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue;
 
             float z = screen_pts[0].z * bc.x + screen_pts[1].z * bc.y + screen_pts[2].z * bc.z;
-            Vec3 world_pos = world_v0 * bc.x + world_v1 * bc.y + world_v2 * bc.z;
-            Vec2 texcoord = tex_coords[0] * bc.x + tex_coords[1] * bc.y + tex_coords[2] * bc.z;
 
-            TGAColor color = TGAColor(100, 200, 255, 58);
-            image.set(x, y, color);
+            int idx = x + y * width;
+
+            if (z < zbuffer[idx]) {
+                TGAColor model_color = image.get(x, y);
+                TGAColor ice_color = TGAColor(100, 200, 255, 100); 
+
+                float alpha = ice_color.a / 255.0f; 
+
+                TGAColor final_color = TGAColor(
+                    model_color.r * (1.0f - alpha) + ice_color.r * alpha,
+                    model_color.g * (1.0f - alpha) + ice_color.g * alpha,
+                    model_color.b * (1.0f - alpha) + ice_color.b * alpha,
+                    255
+                );
+
+                image.set(x, y, final_color);
+            }
         }
     }
 }
@@ -166,50 +179,6 @@ void drawModel(const Model& model, const ShaderUniform& uniform, TGAImage& image
                 const Vertex& v0 = model.vertices[face.vertexId[idx0]];
                 const Vertex& v1 = model.vertices[face.vertexId[idx1]];
                 const Vertex& v2 = model.vertices[face.vertexId[idx2]];
-
-                // УВЕЛИЧИВАЕМ все вершины одинаково (uniform scale)
-                Vec3 world_v0 = Vec3(v0.x * ice_thickness, v0.y * ice_thickness + ice_thickness , v0.z * ice_thickness - ice_thickness * 4 );
-                Vec3 world_v1 = Vec3(v1.x * ice_thickness, v1.y * ice_thickness + ice_thickness , v1.z * ice_thickness - ice_thickness * 4);
-                Vec3 world_v2 = Vec3(v2.x * ice_thickness, v2.y * ice_thickness + ice_thickness , v2.z * ice_thickness - ice_thickness * 4);
-
-                // Вычисляем нормаль для освещения
-                Vec3 edge1 = world_v1 - world_v0;
-                Vec3 edge2 = world_v2 - world_v0;
-                Vec3 normal = cross(edge1, edge2).normalize();
-
-                // Преобразуем в экранные координаты
-                Vec3 screen_v0 = uniform.projection_matrix.transformPoint(
-                    uniform.view_matrix.transformPoint(world_v0));
-                Vec3 screen_v1 = uniform.projection_matrix.transformPoint(
-                    uniform.view_matrix.transformPoint(world_v1));
-                Vec3 screen_v2 = uniform.projection_matrix.transformPoint(
-                    uniform.view_matrix.transformPoint(world_v2));
-
-                Vec3 screen_coords[3] = {
-                    Vec3((screen_v0.x + 1.0f) * uniform.width / 2.0f, (screen_v0.y + 1.0f) * uniform.height / 2.0f, screen_v0.z),
-                    Vec3((screen_v1.x + 1.0f) * uniform.width / 2.0f, (screen_v1.y + 1.0f) * uniform.height / 2.0f, screen_v1.z),
-                    Vec3((screen_v2.x + 1.0f) * uniform.width / 2.0f, (screen_v2.y + 1.0f) * uniform.height / 2.0f, screen_v2.z)
-                };
-
-                Vec2 texture_coords[3] = { Vec2(0,0), Vec2(0,0), Vec2(0,0) }; // Без текстуры для льда
-
-                // Рендерим ледяной блок
-                IceLight(screen_coords, world_v0, world_v1, world_v2,
-                    texture_coords, uniform, uniform.width, uniform.height, zbuffer, image);
-            }
-        }
-    }
-
-
-    for (int i = 0; i < model.faces.size(); i++) {
-        const Face& face = model.faces[i];
-        if (face.vertexId.size() >= 3 && face.textureId.size() >= 3) {
-            for (int j = 1; j < face.vertexId.size() - 1; j++) {
-                int idx0 = 0, idx1 = j, idx2 = j + 1;
-
-                const Vertex& v0 = model.vertices[face.vertexId[idx0]];
-                const Vertex& v1 = model.vertices[face.vertexId[idx1]];
-                const Vertex& v2 = model.vertices[face.vertexId[idx2]];
                 const TextureCoord& tc0 = model.texCoords[face.textureId[idx0]];
                 const TextureCoord& tc1 = model.texCoords[face.textureId[idx1]];
                 const TextureCoord& tc2 = model.texCoords[face.textureId[idx2]];
@@ -263,6 +232,53 @@ void drawModel(const Model& model, const ShaderUniform& uniform, TGAImage& image
             }
         }
     }
+
+
+    for (int i = 0; i < model.faces.size(); i++) {
+        const Face& face = model.faces[i];
+        if (face.vertexId.size() >= 3 && face.textureId.size() >= 3) {
+            for (int j = 1; j < face.vertexId.size() - 1; j++) {
+                int idx0 = 0, idx1 = j, idx2 = j + 1;
+
+                const Vertex& v0 = model.vertices[face.vertexId[idx0]];
+                const Vertex& v1 = model.vertices[face.vertexId[idx1]];
+                const Vertex& v2 = model.vertices[face.vertexId[idx2]];
+
+                Vec3 world_v0 = Vec3(v0.x * ice_thickness, v0.y * ice_thickness - ice_thickness/3, v0.z * ice_thickness);
+                Vec3 world_v1 = Vec3(v1.x * ice_thickness, v1.y * ice_thickness - ice_thickness / 3, v1.z * ice_thickness);
+                Vec3 world_v2 = Vec3(v2.x * ice_thickness, v2.y * ice_thickness - ice_thickness / 3, v2.z * ice_thickness);
+
+                Vec3 screen_v0 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v0));
+                Vec3 screen_v1 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v1));
+                Vec3 screen_v2 = uniform.projection_matrix.transformPoint(
+                    uniform.view_matrix.transformPoint(world_v2));
+
+                Vec3 screen_coords[3] = {
+                    Vec3((screen_v0.x + 1.0f) * uniform.width / 2.0f,
+                         (screen_v0.y + 1.0f) * uniform.height / 2.0f,
+                         screen_v0.z),
+                    Vec3((screen_v1.x + 1.0f) * uniform.width / 2.0f,
+                         (screen_v1.y + 1.0f) * uniform.height / 2.0f,
+                         screen_v1.z),
+                    Vec3((screen_v2.x + 1.0f) * uniform.width / 2.0f,
+                         (screen_v2.y + 1.0f) * uniform.height / 2.0f,
+                         screen_v2.z)
+                };
+                Vec2 texture_coords[3] = {
+                    Vec2(0, 0),
+                    Vec2(0, 0),
+                    Vec2(0, 0)
+                };
+
+
+
+                IceLight(screen_coords, world_v0, world_v1, world_v2,
+                    texture_coords, Vec3(0,0,0), uniform, uniform.width, uniform.height, zbuffer, image);
+            }
+        }
+    }
 }
 
 int main() {
@@ -277,13 +293,13 @@ int main() {
 	}
 
     Model obj;
-    obj = parseOBJ("BaldGuy.obj");
-    Texture texture("BaldGuy_Albedo.jpg");
+    obj = parseOBJ("Isacc.obj");
+    Texture texture("Isaac.png");
 
     std::vector<float> zBuffer(width * height, std::numeric_limits<float>::max());
 
-    Camera camera(Vec3(0, 0, 40), //камера 
-        Vec3(0, 0, 0),  // моделька
+    Camera camera(Vec3(0, 3, 14), //камера 
+        Vec3(0, 3, 0),  // моделька
         40.0f,          // FOV
         0.1f,           // мин
         50.0f);         // макс
@@ -294,7 +310,7 @@ int main() {
     material.specular = Vec3(0.5f, 0.5f, 0.5f);
     material.shininess = 32.0f;
     material.texture = &texture;
-    material.ExtraColor = Vec3(0, 0, 60);
+    material.ExtraColor = Vec3(0, 0, 0);
 
     Light light;
     light.position = Vec3(4, 10, 30);
